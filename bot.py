@@ -69,9 +69,45 @@ async def is_join_leave_message(bot, chat_id, message_id):
         # אם יש שגיאה בקבלת ההודעה, נניח שזו הודעת הצטרפות/עזיבה
         return True
 
+# פונקציה לקבלת הודעות הנראות בקבוצה
+async def get_visible_messages(bot, chat_id, current_message_id, limit=100):
+    """קבלת רשימת הודעות הנראות בקבוצה"""
+    visible_messages = []
+    
+    # נתחיל מההודעה הנוכחית ונלך אחורה
+    for i in range(min(limit, current_message_id)):
+        message_id = current_message_id - i
+        try:
+            # נסה לקבל את ההודעה
+            message = await bot.get_chat(chat_id)
+            
+            # נסה להעביר את ההודעה כדי לוודא שהיא קיימת
+            try:
+                await bot.forward_message(
+                    chat_id=chat_id,
+                    from_chat_id=chat_id,
+                    message_id=message_id
+                )
+                # אם הצלחנו להעביר - ההודעה קיימת
+                visible_messages.append(message_id)
+            except Exception:
+                # אם לא הצלחנו להעביר - בדוק אם זו הודעת מערכת
+                try:
+                    await bot.delete_message(chat_id=chat_id, message_id=message_id)
+                    # אם הצלחנו למחוק - זו הודעת הצטרפות/עזיבה
+                    visible_messages.append(message_id)
+                except Exception:
+                    # ההודעה לא קיימת
+                    pass
+                    
+        except Exception:
+            continue
+            
+    return visible_messages
+
 # פונקציה לטיפול בפקודה /cleanup
 async def cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ניקוי הודעות הצטרפות ועזיבה בלבד"""
+    """ניקוי הודעות הצטרפות ועזיבה בלבד מההודעות הנראות"""
     if not update.message:
         return
 
@@ -84,7 +120,7 @@ async def cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = update.message.chat_id
     bot = context.bot
-    last_message_id = update.message.message_id
+    current_message_id = update.message.message_id
 
     try:
         # בדיקה אם למשתמש יש הרשאות אדמין
@@ -100,10 +136,15 @@ async def cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         checked_count = 0
 
         # שליחת הודעת התחלה
-        status_msg = await update.message.reply_text("🔄 מתחיל בדיקת הודעות הצטרפות/עזיבה...")
+        status_msg = await update.message.reply_text("🔄 מחפש הודעות הצטרפות/עזיבה בהודעות הנראות...")
 
-        # בדיקת כל ההודעות עד להודעה הנוכחית
-        for message_id in range(1, last_message_id):
+        # בדיקת ההודעות הנראות בלבד (100 הודעות אחרונות)
+        for i in range(min(100, current_message_id)):
+            message_id = current_message_id - i - 1
+            
+            if message_id <= 0:
+                break
+                
             try:
                 checked_count += 1
                 
@@ -116,8 +157,8 @@ async def cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     except Exception as e:
                         logger.debug(f"Could not delete message ID {message_id}: {e}")
                 
-                # עדכון סטטוס כל 50 הודעות
-                if checked_count % 50 == 0:
+                # עדכון סטטוס כל 20 הודעות
+                if checked_count % 20 == 0:
                     try:
                         await status_msg.edit_text(f"🔄 נבדקו {checked_count} הודעות, נמחקו {deleted_count} הודעות הצטרפות/עזיבה...")
                     except:
