@@ -1,7 +1,6 @@
 import logging
 import os
 import time
-import random
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -13,13 +12,8 @@ logger = logging.getLogger(__name__)
 TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-# רשימת בדיחות
-JOKES = [
-    "למה השלד לא שיקר? כי אפשר לראות ממש דרכו! 😅",
-    "מה אמרה החתולה למחשב? תפסיק לנחור, אני מנסה לעבוד! 😺",
-    "למה העגבנייה הפכה זמרת? כי היא ידעה לשיר קטשופ! 🍅",
-    "מה עושה דג שרוצה להצחיק? מספר בדיחות גרזן! 🐟"
-]
+# הודעה סטטית לצ'אט פרטי
+PRIVATE_CHAT_MESSAGE = "הבוט הזה חסר ערך בשבילך ככל הנראה, אבל אם אתה כבר כאן למה שלא תצטרף לקבוצה שלנו? https://t.me/OldTownBackup"
 
 # פונקציה למחיקת הודעות הצטרפות/עזיבה (רק בקבוצות)
 async def delete_join_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -37,8 +31,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # בדיקה אם זה צ'אט פרטי
     if update.message.chat.type == "private":
-        joke = random.choice(JOKES)
-        await update.message.reply_text(f"הבוט פעיל! הנה בדיחה בשבילך:\n{joke}")
+        await update.message.reply_text(PRIVATE_CHAT_MESSAGE)
     else:
         await update.message.reply_text("הבוט פעיל! שלח /cleanup לניקוי הודעות (רק אדמינים).")
 
@@ -49,8 +42,7 @@ async def cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # בדיקה אם זה צ'אט פרטי
     if update.message.chat.type == "private":
-        joke = random.choice(JOKES)
-        await update.message.reply_text(f"אין מה לנקות בצ'אט פרטי! אבל הנה בדיחה:\n{joke}")
+        await update.message.reply_text(PRIVATE_CHAT_MESSAGE)
         return
 
     chat_id = update.message.chat_id
@@ -68,7 +60,7 @@ async def cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         # מחיקת כל ההודעות עד להודעה הנוכחית
-        for chanter_id in range(1, last_message_id):
+        for message_id in range(1, last_message_id):
             try:
                 await bot.delete_message(chat_id=chat_id, message_id=message_id)
                 deleted_count += 1
@@ -91,9 +83,9 @@ async def webhook(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message:
         if update.message.new_chat_members or update.message.left_chat_member:
             await delete_join_messages(update, context)
-        elif update.message.text == "/start":
+        elif update.message.text.startswith("/start"):
             await start(update, context)
-        elif update.message.text == "/cleanup":
+        elif update.message.text.startswith("/cleanup"):
             await cleanup(update, context)
 
 def main():
