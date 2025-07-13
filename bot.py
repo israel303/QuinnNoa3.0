@@ -45,69 +45,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("הבוט פעיל! שלח /cleanup לניקוי הודעות (רק אדמינים).")
 
-# פונקציה לבדיקה האם הודעה היא הודעת הצטרפות/עזיבה
-async def is_join_leave_message(bot, chat_id, message_id):
-    """בדיקה האם הודעה היא הודעת הצטרפות או עזיבה"""
-    try:
-        # נסה לקבל את ההודעה
-        message = await bot.get_chat(chat_id)
-        
-        # נסה להעביר את ההודעה למקום אחר כדי לבדוק אם היא ניתנת להעברה
-        try:
-            await bot.forward_message(
-                chat_id=chat_id,
-                from_chat_id=chat_id,
-                message_id=message_id
-            )
-            # אם הצלחנו להעביר - זו הודעה רגילה, לא נמחק
-            return False
-        except Exception:
-            # אם לא הצלחנו להעביר - זו כנראה הודעת הצטרפות/עזיבה
-            return True
-            
-    except Exception:
-        # אם יש שגיאה בקבלת ההודעה, נניח שזו הודעת הצטרפות/עזיבה
-        return True
-
-# פונקציה לקבלת הודעות הנראות בקבוצה
-async def get_visible_messages(bot, chat_id, current_message_id, limit=100):
-    """קבלת רשימת הודעות הנראות בקבוצה"""
-    visible_messages = []
-    
-    # נתחיל מההודעה הנוכחית ונלך אחורה
-    for i in range(min(limit, current_message_id)):
-        message_id = current_message_id - i
-        try:
-            # נסה לקבל את ההודעה
-            message = await bot.get_chat(chat_id)
-            
-            # נסה להעביר את ההודעה כדי לוודא שהיא קיימת
-            try:
-                await bot.forward_message(
-                    chat_id=chat_id,
-                    from_chat_id=chat_id,
-                    message_id=message_id
-                )
-                # אם הצלחנו להעביר - ההודעה קיימת
-                visible_messages.append(message_id)
-            except Exception:
-                # אם לא הצלחנו להעביר - בדוק אם זו הודעת מערכת
-                try:
-                    await bot.delete_message(chat_id=chat_id, message_id=message_id)
-                    # אם הצלחנו למחוק - זו הודעת הצטרפות/עזיבה
-                    visible_messages.append(message_id)
-                except Exception:
-                    # ההודעה לא קיימת
-                    pass
-                    
-        except Exception:
-            continue
-            
-    return visible_messages
-
 # פונקציה לטיפול בפקודה /cleanup
 async def cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ניקוי הודעות הצטרפות ועזיבה בלבד מההודעות הנראות"""
+    """ניקוי כל ההודעות בקבוצה"""
     if not update.message:
         return
 
@@ -120,7 +60,7 @@ async def cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = update.message.chat_id
     bot = context.bot
-    current_message_id = update.message.message_id
+    last_message_id = update.message.message_id
 
     try:
         # בדיקה אם למשתמש יש הרשאות אדמין
@@ -133,39 +73,25 @@ async def cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         start_time = time.time()
         deleted_count = 0
-        checked_count = 0
 
         # שליחת הודעת התחלה
-        status_msg = await update.message.reply_text("🔄 מחפש הודעות הצטרפות/עזיבה בהודעות הנראות...")
+        status_msg = await update.message.reply_text("🔄 מתחיל מחיקת הודעות...")
 
-        # בדיקת ההודעות הנראות בלבד (100 הודעות אחרונות)
-        for i in range(min(100, current_message_id)):
-            message_id = current_message_id - i - 1
-            
-            if message_id <= 0:
-                break
-                
+        # מחיקת כל ההודעות עד להודעה הנוכחית
+        for message_id in range(1, last_message_id):
             try:
-                checked_count += 1
+                await bot.delete_message(chat_id=chat_id, message_id=message_id)
+                deleted_count += 1
                 
-                # בדיקה האם זו הודעת הצטרפות/עזיבה
-                if await is_join_leave_message(bot, chat_id, message_id):
+                # עדכון סטטוס כל 100 הודעות
+                if deleted_count % 100 == 0:
                     try:
-                        await bot.delete_message(chat_id=chat_id, message_id=message_id)
-                        deleted_count += 1
-                        logger.info(f"Deleted join/leave message ID {message_id}")
-                    except Exception as e:
-                        logger.debug(f"Could not delete message ID {message_id}: {e}")
-                
-                # עדכון סטטוס כל 20 הודעות
-                if checked_count % 20 == 0:
-                    try:
-                        await status_msg.edit_text(f"🔄 נבדקו {checked_count} הודעות, נמחקו {deleted_count} הודעות הצטרפות/עזיבה...")
+                        await status_msg.edit_text(f"🔄 נמחקו {deleted_count} הודעות...")
                     except:
                         pass
                         
             except Exception as e:
-                logger.debug(f"Error checking message ID {message_id}: {e}")
+                logger.debug(f"Could not delete message ID {message_id}: {e}")
 
         # חישוב משך הזמן
         elapsed_time = time.time() - start_time
@@ -173,14 +99,14 @@ async def cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         time_str = f"{minutes:02d}:{seconds:02d}"
 
         # שליחת הודעת אישור
-        final_message = f"✅ הפעולה הושלמה\n{deleted_count} הודעות הצטרפות/עזיבה נמחקו מתוך {checked_count} הודעות שנבדקו\nזמן: {time_str} דקות"
+        final_message = f"✅ הפעולה הושלמה\n{deleted_count} הודעות נמחקו ב-{time_str} דקות"
         
         try:
             await status_msg.edit_text(final_message)
         except:
             await update.message.reply_text(final_message)
             
-        logger.info(f"Cleanup completed in chat {chat_id}: {deleted_count} join/leave messages deleted from {checked_count} checked messages in {time_str}")
+        logger.info(f"Cleanup completed in chat {chat_id}: {deleted_count} messages deleted in {time_str}")
         
     except Exception as e:
         logger.error(f"Error during cleanup in chat {chat_id}: {e}")
