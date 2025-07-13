@@ -1,2 +1,2 @@
 python-telegram-bot[webhooks]==20.7
-tornado~=6.4
+tornado==6.3.3
